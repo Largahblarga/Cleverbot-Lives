@@ -189,8 +189,8 @@ public class Chatterbot {
 					targetDataLine.start();
 					//Start processing
 					JVMAudioInputStream input = new JVMAudioInputStream(new AudioInputStream(targetDataLine));
-					dispatcher = new AudioDispatcher(input,4096,2048);
-					processor = new SoundRecorder(silence_threshold);
+					dispatcher = new AudioDispatcher(input,4096,256);
+					processor = new SoundRecorder(new AudioFormat(48000.0F, 16, 2, true, true), silence_threshold);
 					dispatcher.addAudioProcessor(processor);
 					new Thread(dispatcher, "Starting audio processing thread").start();;
 				} else {
@@ -204,8 +204,7 @@ public class Chatterbot {
 				}
 			} catch(LineUnavailableException error) {
 				System.out.println(error);
-				System.exit(0);
-				
+				System.exit(0);				
 			}
 			
 		}
