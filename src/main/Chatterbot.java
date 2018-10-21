@@ -6,6 +6,7 @@ import javax.swing.event.ChangeListener;
 
 import java.awt.*;
 import java.awt.event.*;
+
 import javax.sound.sampled.Mixer;
 import javax.sound.sampled.AudioSystem;
 import javax.sound.sampled.AudioFormat;
@@ -14,23 +15,30 @@ import javax.sound.sampled.Line;
 import javax.sound.sampled.SourceDataLine;
 import javax.sound.sampled.TargetDataLine;
 import javax.sound.sampled.LineUnavailableException;
+import javax.sound.sampled.AudioInputStream;
+
+import be.tarsos.dsp.AudioDispatcher;
+import be.tarsos.dsp.io.jvm.JVMAudioInputStream;
 
 public class Chatterbot {
 	private JFrame frame;
 	private JLabel inputLabel, outputLabel, volumeLabel;
-	private JComboBox inputBox, outputBox;
+	private JComboBox<String> inputBox, outputBox;
 	private JSlider volumeSlider;
 	private JRadioButton powerSwitch;
 	
 	private Mixer.Info[] devices;
 	private String[] deviceNames;
 	
-	private double silence_threshold = 70d;
+	private double silence_threshold = -70D;
 	
-	AudioFormat audioFormat;
+	AudioFormat targetFormat, sourceFormat;
 	
 	SourceDataLine sourceDataLine;
 	TargetDataLine targetDataLine;
+	
+	AudioDispatcher dispatcher;
+	SoundRecorder processor;
 	
 	public Chatterbot() {
 		initGUI();
@@ -54,10 +62,10 @@ public class Chatterbot {
 		outputLabel = new JLabel("Select output:",JLabel.CENTER);
 		volumeLabel = new JLabel("Set minimum volume",JLabel.CENTER);
 		
-		inputBox = new JComboBox(deviceNames);
+		inputBox = new JComboBox<String>(deviceNames);
 		inputBox.addActionListener(new BoxListener());
 		inputBox.setActionCommand("Input");
-		outputBox = new JComboBox(deviceNames);
+		outputBox = new JComboBox<String>(deviceNames);
 		outputBox.addActionListener(new BoxListener());
 		outputBox.setActionCommand("Output");
 		
@@ -110,24 +118,42 @@ public class Chatterbot {
 
 		@Override
 		public void actionPerformed(ActionEvent e) {
-			// TODO Auto-generated method stub
-			/*try {
-				String command = e.getActionCommand();
-				JComboBox comboBox = (JComboBox)e.getSource();
-				Mixer mixer = AudioSystem.getMixer(devices[comboBox.getSelectedIndex()]);
+			//Determine which box was used
+			DataLine.Info targetDataLineInfo = null;
+			DataLine.Info sourceDataLineInfo = null;
+			String command = e.getActionCommand();
+			@SuppressWarnings("unchecked")
+			JComboBox<String> comboBox = (JComboBox<String>)e.getSource();
+			Mixer mixer = AudioSystem.getMixer(devices[comboBox.getSelectedIndex()]);
+			
+			//Then initialize its Mixer and data line
+			if (command == "Input") {
+				targetFormat = new AudioFormat(48000.0F, 16, 2, true, true);
+				targetDataLineInfo = new DataLine.Info(TargetDataLine.class, targetFormat);
+				if (!mixer.isLineSupported(targetDataLineInfo)) {
+					System.out.println("ERROR: Selected input could not be acquired!");
+					System.exit(0);
+				}
+			} else if (command == "Output") {
+				sourceFormat = new AudioFormat(48000.0F, 16, 2, true, true);
+				sourceDataLineInfo = new DataLine.Info(SourceDataLine.class, sourceFormat);
+				if (!mixer.isLineSupported(sourceDataLineInfo)) {
+					System.out.println("ERROR: Selected output could not be acquired!");
+					System.exit(0);
+				}
+			}
+			try {
 				if (command == "Input") {
-					audioFormat = new AudioFormat(48000.0F, 16, 1, true, true);
-					Line.Info sourceLineInfo = mixer.getLineInfo();
-					sourceDataLine = (SourceDataLine)AudioSystem.getLine(sourceLineInfo);
+					targetDataLine = (TargetDataLine) mixer.getLine(targetDataLineInfo);
+					targetDataLine.open(targetFormat);
 				} else if (command == "Output") {
-					audioFormat = new AudioFormat(44100.0F, 16, 1, true, true);
-					Line.Info targetLineInfo = mixer.getLineInfo();
-					targetDataLine = (TargetDataLine)AudioSystem.getLine(targetLineInfo);
+					sourceDataLine = (SourceDataLine) mixer.getLine(sourceDataLineInfo);
+					sourceDataLine.open(sourceFormat);
 				}
 			} catch(LineUnavailableException error) {
 				System.out.println(error);
 				System.exit(0);
-			}*/
+			}
 			
 		}
 	}
@@ -152,26 +178,35 @@ public class Chatterbot {
 		public void actionPerformed(ActionEvent e) {
 			// TODO Auto-generated method stub
 			JRadioButton radioButton = (JRadioButton)e.getSource();
-			//try {
+			try {
 				if (radioButton.isSelected()) {
-					//sourceDataLine.open(audioFormat);
-					//targetDataLine.open(audioFormat);
+					//Turn on audio streams, disable controls
+					sourceDataLine.open(sourceFormat);
+					targetDataLine.open(targetFormat);
 					inputBox.setEnabled(false);
 					outputBox.setEnabled(false);
 					volumeSlider.setEnabled(false);
+					targetDataLine.start();
+					//Start processing
+					JVMAudioInputStream input = new JVMAudioInputStream(new AudioInputStream(targetDataLine));
+					dispatcher = new AudioDispatcher(input,4096,2048);
+					processor = new SoundRecorder(silence_threshold);
+					dispatcher.addAudioProcessor(processor);
+					new Thread(dispatcher, "Starting audio processing thread").start();;
 				} else {
-					//sourceDataLine.close(audioFormat);
-					//targetDataLine.close(audioFormat);
+					//Turn off audio streams, enable controls
+					sourceDataLine.close();
+					targetDataLine.close();
 					inputBox.setEnabled(true);
 					outputBox.setEnabled(true);
 					volumeSlider.setEnabled(true);
+					dispatcher.removeAudioProcessor(processor);
 				}
+			} catch(LineUnavailableException error) {
+				System.out.println(error);
+				System.exit(0);
 				
-			//} catch(LineUnavailableException error) {
-				//System.out.println(error);
-				//System.exit(0);
-				
-			//}
+			}
 			
 		}
 		
